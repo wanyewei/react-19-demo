@@ -1,25 +1,33 @@
-export default function Sidebar({ demos, activeDemo, onSelect }) {
+export default function Sidebar({ groups, activeDemo, onSelect }) {
   return (
     <nav style={styles.nav}>
       <div style={styles.logo}>
         <span style={styles.logoIcon}>⚛️</span>
         <div>
           <div style={styles.title}>React 19</div>
-          <div style={styles.subtitle}>新功能 Demo</div>
+          <div style={styles.subtitle}>新功能完整介紹</div>
         </div>
       </div>
       <div style={styles.list}>
-        {demos.map((demo) => (
-          <button
-            key={demo.id}
-            onClick={() => onSelect(demo.id)}
-            style={{
-              ...styles.item,
-              ...(activeDemo === demo.id ? styles.itemActive : {}),
-            }}
-          >
-            {demo.label}
-          </button>
+        {groups.map((group) => (
+          <div key={group.label} style={styles.group}>
+            <div style={styles.groupLabel}>
+              <span>{group.icon}</span>
+              <span>{group.label}</span>
+            </div>
+            {group.items.map((demo) => (
+              <button
+                key={demo.id}
+                onClick={() => onSelect(demo.id)}
+                style={{
+                  ...styles.item,
+                  ...(activeDemo === demo.id ? styles.itemActive : {}),
+                }}
+              >
+                {demo.label}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
       <div style={styles.footer}>
@@ -32,14 +40,16 @@ export default function Sidebar({ demos, activeDemo, onSelect }) {
 
 const styles = {
   nav: {
-    width: 260,
-    minWidth: 260,
+    width: 272,
+    minWidth: 272,
     background: "var(--surface)",
     borderRight: "1px solid var(--border)",
     display: "flex",
     flexDirection: "column",
-    padding: "24px 16px",
-    gap: 8,
+    padding: "24px 14px",
+    gap: 4,
+    overflowY: "auto",
+    maxHeight: "100vh",
   },
   logo: {
     display: "flex",
@@ -47,7 +57,7 @@ const styles = {
     gap: 12,
     padding: "0 8px 20px",
     borderBottom: "1px solid var(--border)",
-    marginBottom: 8,
+    marginBottom: 4,
   },
   logoIcon: {
     fontSize: 28,
@@ -64,20 +74,38 @@ const styles = {
   list: {
     display: "flex",
     flexDirection: "column",
-    gap: 4,
+    gap: 2,
     flex: 1,
   },
+  group: {
+    marginBottom: 4,
+  },
+  groupLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 11,
+    fontWeight: 700,
+    color: "var(--text-dim)",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+    padding: "10px 10px 4px",
+    userSelect: "none",
+  },
   item: {
+    display: "block",
+    width: "100%",
     background: "transparent",
     border: "none",
     color: "var(--text-dim)",
-    padding: "10px 12px",
+    padding: "8px 12px 8px 28px",
     borderRadius: "var(--radius-sm)",
     textAlign: "left",
     cursor: "pointer",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 500,
     transition: "all 0.15s",
+    lineHeight: 1.4,
   },
   itemActive: {
     background: "var(--accent)",
