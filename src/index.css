@@ -21,6 +21,16 @@
   --purple: #a855f7;
   --radius: 12px;
   --radius-sm: 8px;
+
+  --sh-class: #60a5fa;
+  --sh-identifier: #e5e5e5;
+  --sh-sign: #8996a3;
+  --sh-property: #7dd3fc;
+  --sh-entity: #22d3ee;
+  --sh-jsxliterals: #a78bfa;
+  --sh-string: #4ade80;
+  --sh-keyword: #f472b6;
+  --sh-comment: #6b7280;
 }
 
 body {

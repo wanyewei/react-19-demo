@@ -1,3 +1,5 @@
+import { highlight } from "sugar-high";
+
 export function DemoLayout({ title, description, children }) {
   return (
     <div>
@@ -28,11 +30,12 @@ export function ComparePanel({ before, after, beforeLabel, afterLabel }) {
 }
 
 export function CodeBlock({ title, code }) {
+  const html = highlight(code);
   return (
     <div style={styles.codeWrap}>
       {title && <div style={styles.codeTitle}>{title}</div>}
       <pre style={styles.pre}>
-        <code>{code}</code>
+        <code dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
     </div>
   );
