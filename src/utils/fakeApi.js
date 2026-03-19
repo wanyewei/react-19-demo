@@ -21,8 +21,9 @@ export async function fakeSendMessage(text) {
   return { id: Date.now(), text, timestamp: new Date().toLocaleTimeString() };
 }
 
-export async function fakeToggleLike(liked) {
+export async function fakeToggleLike(liked, shouldFail = false) {
   await fakeDelay(1000);
+  if (shouldFail) throw new Error("API 錯誤");
   return !liked;
 }
 
@@ -33,6 +34,13 @@ export function fakeDeleteTodo(shouldFail = false) {
       else resolve();
     }, 1200);
   });
+}
+
+export async function fakeAddMember(name, role) {
+  await fakeDelay(1500);
+  if (!name.trim()) return "名稱不能為空";
+  if (!role.trim()) return "角色不能為空";
+  return null;
 }
 
 export function fakeLoadComments() {
