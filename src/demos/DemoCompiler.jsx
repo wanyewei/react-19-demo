@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, memo } from "react";
+import { useState, useRef, useLayoutEffect, useMemo, useCallback, memo } from "react";
 import {
   DemoLayout,
   ComparePanel,
@@ -6,23 +6,82 @@ import {
   LiveArea,
 } from "../components/DemoLayout";
 
+function RenderFlash({ count }) {
+  const flashRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (count > 0 && flashRef.current) {
+      flashRef.current.style.transition = "none";
+      flashRef.current.style.background = "var(--red)";
+      flashRef.current.style.color = "#fff";
+      requestAnimationFrame(() => {
+        if (flashRef.current) {
+          flashRef.current.style.transition = "background 1s, color 1s";
+          flashRef.current.style.background = "var(--surface-2)";
+          flashRef.current.style.color = "var(--text-dim)";
+        }
+      });
+    }
+  }, [count]);
+
+  return (
+    <div ref={flashRef} style={styles.renderCounter}>
+      子元件 render: <strong style={{ color: count > 0 ? "var(--red)" : "var(--green)" }}>{count}</strong> 次
+    </div>
+  );
+}
+
 // ========================================
-// React 18：手動 memo 地獄
+// 沒有優化：每次 parent re-render，child 都會跟著 re-render
 // ========================================
-const ExpensiveListOld = memo(function ExpensiveListOld({ items, onSelect }) {
-  const [renderCount, setRenderCount] = useState(0);
+let _naiveRenders = 0;
+function ExpensiveListNaive({ items, onSelect }) {
+  _naiveRenders++;
 
   return (
     <div>
-      <div style={styles.renderBadge}>
-        Render 次數: <strong>{renderCount}</strong>
-        <button
-          onClick={() => setRenderCount((c) => c + 1)}
-          style={styles.smallBtn}
-        >
-          強制 re-render
-        </button>
+      <RenderFlash count={_naiveRenders - 1} />
+      <div style={styles.list}>
+        {items.map((item, i) => (
+          <div key={i} style={styles.listItem} onClick={() => onSelect(item)}>
+            {item}
+          </div>
+        ))}
       </div>
+    </div>
+  );
+}
+
+function ParentNaive() {
+  const [count, setCount] = useState(0);
+  const [selected, setSelected] = useState(null);
+
+  const items = ["Apple", "Banana", "Cherry", "Durian", "Elderberry"];
+  const handleSelect = (item) => setSelected(item);
+
+  return (
+    <div>
+      <div style={styles.counterRow}>
+        <button onClick={() => setCount((c) => c + 1)} style={styles.btn}>
+          Parent count: {count}
+        </button>
+        {selected && <span style={styles.selected}>已選: {selected}</span>}
+      </div>
+      <ExpensiveListNaive items={items} onSelect={handleSelect} />
+    </div>
+  );
+}
+
+// ========================================
+// React 18：手動 memo 三件套才能防止不必要 re-render
+// ========================================
+let _manualRenders = 0;
+const ExpensiveListManual = memo(function ExpensiveListManual({ items, onSelect }) {
+  _manualRenders++;
+
+  return (
+    <div>
+      <RenderFlash count={_manualRenders - 1} />
       <div style={styles.list}>
         {items.map((item, i) => (
           <div key={i} style={styles.listItem} onClick={() => onSelect(item)}>
@@ -34,7 +93,7 @@ const ExpensiveListOld = memo(function ExpensiveListOld({ items, onSelect }) {
   );
 });
 
-function ParentOld() {
+function ParentManual() {
   const [count, setCount] = useState(0);
   const [selected, setSelected] = useState(null);
 
@@ -42,10 +101,7 @@ function ParentOld() {
     () => ["Apple", "Banana", "Cherry", "Durian", "Elderberry"],
     []
   );
-
-  const handleSelect = useCallback((item) => {
-    setSelected(item);
-  }, []);
+  const handleSelect = useCallback((item) => setSelected(item), []);
 
   return (
     <div>
@@ -55,29 +111,22 @@ function ParentOld() {
         </button>
         {selected && <span style={styles.selected}>已選: {selected}</span>}
       </div>
-      <ExpensiveListOld items={items} onSelect={handleSelect} />
+      <ExpensiveListManual items={items} onSelect={handleSelect} />
     </div>
   );
 }
 
 // ========================================
-// React 19 + Compiler：什麼都不用加
+// React 19 + Compiler：跟 naive 一樣的 code，但不會多餘 re-render
 // ========================================
-function ExpensiveListNew({ items, onSelect }) {
+let _compiledRenders = 0;
+function ExpensiveListCompiled({ items, onSelect }) {
   "use memo";
-  const [renderCount, setRenderCount] = useState(0);
+  _compiledRenders++;
 
   return (
     <div>
-      <div style={styles.renderBadge}>
-        Render 次數: <strong>{renderCount}</strong>
-        <button
-          onClick={() => setRenderCount((c) => c + 1)}
-          style={styles.smallBtn}
-        >
-          強制 re-render
-        </button>
-      </div>
+      <RenderFlash count={_compiledRenders - 1} />
       <div style={styles.list}>
         {items.map((item, i) => (
           <div key={i} style={styles.listItem} onClick={() => onSelect(item)}>
@@ -89,16 +138,13 @@ function ExpensiveListNew({ items, onSelect }) {
   );
 }
 
-function ParentNew() {
+function ParentCompiled() {
   "use memo";
   const [count, setCount] = useState(0);
   const [selected, setSelected] = useState(null);
 
   const items = ["Apple", "Banana", "Cherry", "Durian", "Elderberry"];
-
-  const handleSelect = (item) => {
-    setSelected(item);
-  };
+  const handleSelect = (item) => setSelected(item);
 
   return (
     <div>
@@ -108,7 +154,7 @@ function ParentNew() {
         </button>
         {selected && <span style={styles.selected}>已選: {selected}</span>}
       </div>
-      <ExpensiveListNew items={items} onSelect={handleSelect} />
+      <ExpensiveListCompiled items={items} onSelect={handleSelect} />
     </div>
   );
 }
@@ -119,85 +165,145 @@ export default function DemoCompiler() {
       title="React Compiler"
       description="React Compiler（原 React Forget）在 build time 自動分析元件，插入等同 useMemo / useCallback / React.memo 的最佳化程式碼。你只需要寫最自然的 React code。"
     >
+      <h2 style={styles.h2}>問題：沒有手動 memo 會怎樣？</h2>
+      <p style={styles.subDesc}>
+        連續點「Parent count」按鈕，觀察子元件的 render 次數。
+        沒有任何優化時，<strong>每次 parent re-render 都會連帶子元件 re-render</strong>，
+        即使子元件的 props 完全沒變。紅色閃爍 = 不必要的 re-render。
+      </p>
+
       <ComparePanel
+        beforeLabel="沒有優化"
+        afterLabel="手動 memo（React 18 做法）"
         before={
           <>
             <CodeBlock
-              title="程式碼 — 手動優化"
-              code={`// React 18: 手動 memo 三件套
-const ExpensiveList = memo(({ items, onSelect }) => {
-  // 用 memo 包元件防止不必要 re-render
-  return items.map(item => ...);
-});
-
-function Parent() {
+              title="程式碼 — 沒有任何優化"
+              code={`function Parent() {
   const [count, setCount] = useState(0);
 
-  // useMemo 確保陣列參考不變
-  const items = useMemo(
-    () => ['Apple', 'Banana', 'Cherry'],
-    []
-  );
+  // 每次 render 都產生新的 array
+  const items = ['Apple', 'Banana', 'Cherry'];
 
-  // useCallback 確保 callback 參考不變
-  const handleSelect = useCallback((item) => {
+  // 每次 render 都產生新的 function
+  const handleSelect = (item) => {
     setSelected(item);
-  }, []);
+  };
 
+  // ❌ items 和 handleSelect 的 reference
+  // 每次都不同 → 子元件每次都 re-render
   return <ExpensiveList
     items={items}
     onSelect={handleSelect}
   />;
-}
-
-// 問題：
-// 1. 每個元件都要考慮要不要 memo
-// 2. 每個 object/array/function 都要考慮
-//    useMemo / useCallback
-// 3. deps array 容易寫錯
-// 4. 過度 memo 反而浪費記憶體`}
+}`}
             />
-            <LiveArea label="Live Demo — 點 count 不會觸發子元件 re-render（因為有 memo）">
-              <ParentOld />
+            <LiveArea label="連點 Parent count — 觀察紅色閃爍">
+              <ParentNaive />
             </LiveArea>
           </>
         }
         after={
           <>
             <CodeBlock
-              title="程式碼 — Compiler 自動優化"
-              code={`// React 19 + Compiler: 寫最自然的 code
-function ExpensiveList({ items, onSelect }) {
-  // 不需要 memo！
+              title="程式碼 — 手動 memo 三件套"
+              code={`// memo + useMemo + useCallback
+const ExpensiveList = memo(({ items }) => {
+  return items.map(item => ...);
+});
+
+function Parent() {
+  const [count, setCount] = useState(0);
+
+  const items = useMemo(
+    () => ['Apple', 'Banana', 'Cherry'],
+    [] // deps 手動維護
+  );
+
+  const handleSelect = useCallback(
+    (item) => setSelected(item),
+    [] // deps 手動維護
+  );
+
+  // ✅ 手動確保 reference 不變
+  // 但要寫很多額外 code...
+  return <ExpensiveList
+    items={items}
+    onSelect={handleSelect}
+  />;
+}`}
+            />
+            <LiveArea label="連點 Parent count — 子元件不 re-render">
+              <ParentManual />
+            </LiveArea>
+          </>
+        }
+      />
+
+      <div style={styles.divider} />
+
+      <h2 style={styles.h2}>解法：React Compiler 自動優化</h2>
+      <p style={styles.subDesc}>
+        同樣是最自然的寫法（跟左上角「沒有優化」的 code 一模一樣），但 Compiler 在 build time 自動插入 memoization。
+        連點「Parent count」，子元件 <strong>不會 re-render</strong>。
+      </p>
+
+      <ComparePanel
+        beforeLabel="沒有優化（對照組）"
+        afterLabel="React Compiler（同樣的 code）"
+        before={
+          <>
+            <div style={styles.codeBadge}>
+              <span style={{ color: "var(--red)" }}>同樣的 code，不同的效能</span>
+            </div>
+            <CodeBlock
+              title="沒有 Compiler"
+              code={`function ExpensiveList({ items, onSelect }) {
   return items.map(item => ...);
 }
 
 function Parent() {
   const [count, setCount] = useState(0);
-
-  // 不需要 useMemo！
   const items = ['Apple', 'Banana', 'Cherry'];
-
-  // 不需要 useCallback！
-  const handleSelect = (item) => {
-    setSelected(item);
-  };
-
+  const handleSelect = (item) => { ... };
   return <ExpensiveList
     items={items}
     onSelect={handleSelect}
   />;
 }
-
-// Compiler 在 build time 自動：
-// ✅ 分析哪些值需要 memoize
-// ✅ 插入等同 useMemo 的快取
-// ✅ 插入等同 useCallback 的快取
-// ✅ 自動跳過不必要的 re-render
-// ✅ 比手動 memo 更精準`}
+// ❌ 沒有 memo → 每次都 re-render`}
             />
-            <LiveArea label="Live Demo — 同樣效果，但 code 更乾淨">
-              <ParentNew />
+            <LiveArea label="子元件每次都 re-render">
+              <ParentNaive />
+            </LiveArea>
+          </>
+        }
+        after={
+          <>
+            <div style={styles.codeBadge}>
+              <span style={{ color: "var(--green)" }}>一模一樣的 code + Compiler</span>
+            </div>
+            <CodeBlock
+              title="有 Compiler"
+              code={`function ExpensiveList({ items, onSelect }) {
+  "use memo"; // 或全域啟用就不需要
+  return items.map(item => ...);
+}
+
+function Parent() {
+  "use memo";
+  const [count, setCount] = useState(0);
+  const items = ['Apple', 'Banana', 'Cherry'];
+  const handleSelect = (item) => { ... };
+  return <ExpensiveList
+    items={items}
+    onSelect={handleSelect}
+  />;
+}
+// ✅ Compiler 自動優化 → 不 re-render`}
+            />
+            <LiveArea label="子元件不 re-render！">
+              <ParentCompiled />
             </LiveArea>
           </>
         }
@@ -260,6 +366,7 @@ export default defineConfig({
 
 const styles = {
   h2: { fontSize: 20, fontWeight: 600, marginBottom: 8 },
+  subDesc: { color: "var(--text-dim)", fontSize: 14, marginBottom: 16, lineHeight: 1.7 },
   divider: { borderTop: "1px solid var(--border)", margin: "8px 0" },
   btn: {
     padding: "8px 20px",
@@ -271,16 +378,6 @@ const styles = {
     fontWeight: 600,
     cursor: "pointer",
   },
-  smallBtn: {
-    padding: "2px 8px",
-    borderRadius: 4,
-    border: "1px solid var(--border)",
-    background: "var(--surface)",
-    color: "var(--text-dim)",
-    fontSize: 11,
-    cursor: "pointer",
-    marginLeft: 8,
-  },
   counterRow: {
     display: "flex",
     alignItems: "center",
@@ -291,12 +388,14 @@ const styles = {
     fontSize: 13,
     color: "var(--green)",
   },
-  renderBadge: {
+  renderCounter: {
     fontSize: 12,
     color: "var(--text-dim)",
     marginBottom: 8,
-    display: "flex",
-    alignItems: "center",
+    padding: "6px 10px",
+    borderRadius: "var(--radius-sm)",
+    background: "var(--surface-2)",
+    transition: "background 1s, color 1s",
   },
   list: {
     display: "flex",
@@ -309,6 +408,11 @@ const styles = {
     borderRadius: "var(--radius-sm)",
     fontSize: 13,
     cursor: "pointer",
+  },
+  codeBadge: {
+    fontSize: 13,
+    fontWeight: 600,
+    marginBottom: 8,
   },
   infoPanel: {
     background: "var(--surface)",
