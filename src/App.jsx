@@ -24,8 +24,8 @@ const groups = [
     label: "新 Hooks & API",
     icon: "⚡",
     items: [
-      { id: "transition", label: "startTransition 非阻塞", component: DemoTransition },
-      { id: "actions", label: "Actions & useActionState", component: DemoActions },
+      { id: "transition", label: "startTransition & Actions", component: DemoTransition },
+      { id: "actions", label: "useActionState 進階", component: DemoActions },
       { id: "optimistic", label: "useOptimistic", component: DemoUseOptimistic },
       { id: "use", label: "use() API", component: DemoUseApi },
     ],

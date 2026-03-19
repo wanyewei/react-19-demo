@@ -10,69 +10,80 @@ import { fakeToggleLike, fakeDeleteTodo } from "../utils/fakeApi";
 // ========================================
 // React 18：手動做 optimistic update
 // ========================================
-function LikeButtonOld() {
+function LikeButtonOld({ shouldFail }) {
   const [liked, setLiked] = useState(false);
   const [count, setCount] = useState(42);
   const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState(null);
 
   const handleClick = async () => {
     const previousLiked = liked;
     const previousCount = count;
 
-    // 先樂觀更新
     setLiked(!liked);
     setCount(liked ? count - 1 : count + 1);
     setIsPending(true);
+    setError(null);
 
     try {
-      await fakeToggleLike(liked);
-      // API 成功 → 保持樂觀值
+      await fakeToggleLike(liked, shouldFail);
     } catch {
-      // API 失敗 → 手動 rollback
       setLiked(previousLiked);
       setCount(previousCount);
+      setError("失敗，已手動 rollback");
     } finally {
       setIsPending(false);
     }
   };
 
   return (
-    <button onClick={handleClick} disabled={isPending} style={styles.likeBtn}>
-      <span style={{ fontSize: 20 }}>{liked ? "❤️" : "🤍"}</span>
-      <span>{count}</span>
-      {isPending && <span style={styles.spinner}>⏳</span>}
-    </button>
+    <div>
+      <button onClick={handleClick} disabled={isPending} style={styles.likeBtn}>
+        <span style={{ fontSize: 20 }}>{liked ? "❤️" : "🤍"}</span>
+        <span>{count}</span>
+        {isPending && <span style={styles.spinner}>⏳</span>}
+      </button>
+      {error && <p style={styles.errorMsg}>{error}</p>}
+    </div>
   );
 }
 
 // ========================================
 // React 19：useOptimistic，自動 rollback
 // ========================================
-function LikeButtonNew() {
+function LikeButtonNew({ shouldFail }) {
   const [liked, setLiked] = useState(false);
   const [count, setCount] = useState(42);
   const [optimisticLiked, setOptimisticLiked] = useOptimistic(liked);
   const [optimisticCount, setOptimisticCount] = useOptimistic(count);
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState(null);
 
   const handleClick = () => {
+    setError(null);
     startTransition(async () => {
       setOptimisticLiked(!liked);
       setOptimisticCount(liked ? count - 1 : count + 1);
 
-      const result = await fakeToggleLike(liked);
-      setLiked(result);
-      setCount(result ? count + 1 : count - 1);
-      // 如果 API 失敗，optimistic 值會自動 rollback 到真實的 state
+      try {
+        const result = await fakeToggleLike(liked, shouldFail);
+        setLiked(result);
+        setCount(result ? count + 1 : count - 1);
+      } catch {
+        setError("失敗，已自動 rollback");
+      }
     });
   };
 
   return (
-    <button onClick={handleClick} disabled={isPending} style={styles.likeBtn}>
-      <span style={{ fontSize: 20 }}>{optimisticLiked ? "❤️" : "🤍"}</span>
-      <span>{optimisticCount}</span>
-      {isPending && <span style={styles.spinner}>⏳</span>}
-    </button>
+    <div>
+      <button onClick={handleClick} disabled={isPending} style={styles.likeBtn}>
+        <span style={{ fontSize: 20 }}>{optimisticLiked ? "❤️" : "🤍"}</span>
+        <span>{optimisticCount}</span>
+        {isPending && <span style={styles.spinner}>⏳</span>}
+      </button>
+      {error && <p style={styles.errorMsg}>{error}</p>}
+    </div>
   );
 }
 
@@ -178,6 +189,7 @@ function TodoListNew({ shouldFail }) {
 
 export default function DemoUseOptimistic() {
   const [shouldFail, setShouldFail] = useState(false);
+  const [likeShouldFail, setLikeShouldFail] = useState(false);
 
   return (
     <DemoLayout
@@ -185,11 +197,26 @@ export default function DemoUseOptimistic() {
       description="React 19 內建 useOptimistic hook，讓你不用手動管理樂觀更新 + rollback 的邏輯。搭配 useTransition 使用，失敗時自動回滾。"
     >
       <h2 style={styles.h2}>範例 1：Like 按鈕</h2>
+      <p style={styles.subDesc}>
+        先正常點讚觀察樂觀更新，再勾選「模擬 API 失敗」點讚觀察 rollback。
+        左邊需要手動 rollback（try/catch），右邊自動 rollback。
+      </p>
+
+      <label style={styles.failToggle}>
+        <input
+          type="checkbox"
+          checked={likeShouldFail}
+          onChange={(e) => setLikeShouldFail(e.target.checked)}
+          style={{ marginRight: 8 }}
+        />
+        模擬 API 失敗（觀察 rollback 行為差異）
+      </label>
+
       <ComparePanel
         before={
           <>
             <CodeBlock
-              title="程式碼"
+              title="程式碼 — 手動 rollback"
               code={`const handleClick = async () => {
   const prevLiked = liked;
   const prevCount = count;
@@ -201,21 +228,21 @@ export default function DemoUseOptimistic() {
   try {
     await toggleLike(liked);
   } catch {
-    // 手動 rollback！
+    // 手動 rollback！每個 state 都要還原
     setLiked(prevLiked);
     setCount(prevCount);
   }
 };`}
             />
-            <LiveArea label="Live Demo">
-              <LikeButtonOld />
+            <LiveArea label="Live Demo — 失敗時手動 rollback">
+              <LikeButtonOld shouldFail={likeShouldFail} />
             </LiveArea>
           </>
         }
         after={
           <>
             <CodeBlock
-              title="程式碼"
+              title="程式碼 — 自動 rollback"
               code={`const [optimisticLiked, setOptimisticLiked]
   = useOptimistic(liked);
 
@@ -224,12 +251,13 @@ const handleClick = () => {
     setOptimisticLiked(!liked); // 立即樂觀更新
     const result = await toggleLike(liked);
     setLiked(result);
-    // 失敗時自動 rollback！不用 try/catch
+    // ✅ 失敗時自動 rollback！
+    // optimistic 值回到真實 state
   });
 };`}
             />
-            <LiveArea label="Live Demo">
-              <LikeButtonNew />
+            <LiveArea label="Live Demo — 失敗時自動 rollback">
+              <LikeButtonNew shouldFail={likeShouldFail} />
             </LiveArea>
           </>
         }

@@ -226,6 +226,10 @@ export default function DemoContextAndMore() {
       description="React 19 還有許多 DX 改進：Context 可以直接當 Provider、useDeferredValue 支援初始值、原生 Document Metadata 等。"
     >
       <h2 style={styles.h2}>改進 1：{"<Context>"} 直接當 Provider</h2>
+      <p style={styles.subDesc}>
+        行為完全一樣，但少寫 <code>.Provider</code>。看起來是小事，但乘以整個 codebase 就是可觀的簡化。
+        未來 <code>.Provider</code> 會被 deprecate。
+      </p>
       <ComparePanel
         before={
           <>

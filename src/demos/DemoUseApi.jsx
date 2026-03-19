@@ -10,7 +10,7 @@ import { fakeLoadComments } from "../utils/fakeApi";
 // ========================================
 // React 18：useEffect + useState 載入資料
 // ========================================
-function CommentsOld() {
+function CommentsOldInner() {
   const [comments, setComments] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -49,6 +49,18 @@ function CommentsOld() {
   );
 }
 
+function CommentsOld() {
+  const [reloadKey, setReloadKey] = useState(0);
+  return (
+    <div>
+      <button onClick={() => setReloadKey((k) => k + 1)} style={styles.reloadBtn}>
+        🔄 重新載入（觀察手動 loading 管理）
+      </button>
+      <CommentsOldInner key={reloadKey} />
+    </div>
+  );
+}
+
 // ========================================
 // React 19：use() + Suspense
 // ========================================
@@ -69,12 +81,20 @@ function CommentsNew({ commentsPromise }) {
 }
 
 function CommentsNewWrapper() {
-  const [commentsPromise] = useState(() => fakeLoadComments());
+  const [commentsPromise, setCommentsPromise] = useState(() => fakeLoadComments());
 
   return (
-    <Suspense fallback={<div style={styles.loading}>載入中...</div>}>
-      <CommentsNew commentsPromise={commentsPromise} />
-    </Suspense>
+    <div>
+      <button
+        onClick={() => setCommentsPromise(fakeLoadComments())}
+        style={styles.reloadBtn}
+      >
+        🔄 重新載入（觀察 Suspense loading）
+      </button>
+      <Suspense fallback={<div style={styles.loading}>載入中...</div>}>
+        <CommentsNew commentsPromise={commentsPromise} />
+      </Suspense>
+    </div>
   );
 }
 
@@ -189,7 +209,7 @@ export default function DemoUseApi() {
 // 需要 3 個 useState + useEffect
 // 還要處理 race condition (cancelled)`}
             />
-            <LiveArea label="Live Demo（重新整理頁面可看載入效果）">
+            <LiveArea label="Live Demo — 按重新載入觀察 loading">
               <CommentsOld />
             </LiveArea>
           </>
@@ -213,7 +233,7 @@ export default function DemoUseApi() {
 // Suspense 自動處理 loading 狀態
 // 注意：promise 要在 render 外建立`}
             />
-            <LiveArea label="Live Demo（重新整理頁面可看載入效果）">
+            <LiveArea label="Live Demo — 按重新載入觀察 Suspense">
               <CommentsNewWrapper />
             </LiveArea>
           </>
@@ -284,6 +304,56 @@ const styles = {
   h2: { fontSize: 20, fontWeight: 600, marginBottom: 8 },
   subDesc: { color: "var(--text-dim)", fontSize: 14, marginBottom: 16, lineHeight: 1.7 },
   divider: { borderTop: "1px solid var(--border)", margin: "8px 0" },
+  lineCompare: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    marginBottom: 20,
+    padding: "16px 0",
+  },
+  lineBox: {
+    border: "2px solid",
+    borderRadius: "var(--radius)",
+    padding: "16px 24px",
+    textAlign: "center",
+    minWidth: 160,
+    background: "var(--surface)",
+  },
+  lineNumber: {
+    fontSize: 36,
+    fontWeight: 800,
+    fontFamily: "'SF Mono', 'Fira Code', monospace",
+    color: "var(--text)",
+    lineHeight: 1.2,
+  },
+  lineLabel: {
+    fontSize: 13,
+    color: "var(--text-dim)",
+    marginTop: 4,
+  },
+  lineDetail: {
+    fontSize: 11,
+    color: "var(--text-dim)",
+    marginTop: 6,
+    opacity: 0.7,
+  },
+  lineArrow: {
+    fontSize: 24,
+    color: "var(--text-dim)",
+    fontWeight: 700,
+  },
+  reloadBtn: {
+    padding: "5px 12px",
+    borderRadius: "var(--radius-sm)",
+    border: "1px dashed var(--border)",
+    background: "transparent",
+    color: "var(--text-dim)",
+    fontSize: 12,
+    cursor: "pointer",
+    marginBottom: 10,
+    width: "100%",
+  },
   loading: {
     color: "var(--text-dim)",
     padding: 16,
