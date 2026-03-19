@@ -1,4 +1,4 @@
-import { useState, useTransition, useActionState } from "react";
+import { useState, useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   DemoLayout,
@@ -6,7 +6,7 @@ import {
   CodeBlock,
   LiveArea,
 } from "../components/DemoLayout";
-import { fakeUpdateName } from "../utils/fakeApi";
+import { fakeUpdateName, fakeAddMember } from "../utils/fakeApi";
 
 // ========================================
 // React 18 做法：手動管理所有狀態
@@ -51,49 +51,7 @@ function UpdateNameOld() {
 }
 
 // ========================================
-// React 19 做法 (1)：useTransition 支援 async
-// ========================================
-function UpdateNameWithTransition() {
-  const [name, setName] = useState("");
-  const [error, setError] = useState(null);
-  const [isPending, startTransition] = useTransition();
-  const [success, setSuccess] = useState(false);
-
-  const handleSubmit = () => {
-    startTransition(async () => {
-      setError(null);
-      setSuccess(false);
-      const err = await fakeUpdateName(name);
-      if (err) {
-        setError(err);
-        return;
-      }
-      setSuccess(true);
-      setName("");
-    });
-  };
-
-  return (
-    <div>
-      <div style={styles.inputRow}>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="輸入新名稱..."
-          style={styles.input}
-        />
-        <button onClick={handleSubmit} disabled={isPending} style={styles.btn}>
-          {isPending ? "更新中..." : "更新"}
-        </button>
-      </div>
-      {error && <p style={styles.error}>{error}</p>}
-      {success && <p style={styles.success}>更新成功！</p>}
-    </div>
-  );
-}
-
-// ========================================
-// React 19 做法 (2)：useActionState + <form action>
+// React 19：useActionState + <form action>
 // ========================================
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -131,29 +89,135 @@ function UpdateNameWithAction() {
   );
 }
 
+// ========================================
+// useFormStatus demo — prop drilling vs useFormStatus
+// ========================================
+function AddMemberOld() {
+  const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    setIsPending(true);
+    setError(null);
+    setSuccess(false);
+    const err = await fakeAddMember(formData.get("name"), formData.get("role"));
+    setIsPending(false);
+    if (err) { setError(err); return; }
+    setSuccess(true);
+    e.target.reset();
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div style={styles.fieldGroup}>
+        <input name="name" placeholder="名稱" disabled={isPending} style={{ ...styles.input, opacity: isPending ? 0.5 : 1 }} />
+        <input name="role" placeholder="角色" disabled={isPending} style={{ ...styles.input, opacity: isPending ? 0.5 : 1 }} />
+      </div>
+      <div style={styles.formFooter}>
+        <button type="submit" disabled={isPending} style={styles.btn}>
+          {isPending ? "新增中..." : "新增成員"}
+        </button>
+        {isPending && <span style={styles.savingHint}>⏳ 儲存中...</span>}
+      </div>
+      {error && <p style={styles.error}>{error}</p>}
+      {success && <p style={styles.success}>新增成功！</p>}
+    </form>
+  );
+}
+
+function FormSubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending} style={styles.btn}>
+      {pending ? "新增中..." : "新增成員"}
+    </button>
+  );
+}
+
+function FormSaveIndicator() {
+  const { pending } = useFormStatus();
+  if (!pending) return null;
+  return <span style={styles.savingHint}>⏳ 儲存中...</span>;
+}
+
+function FormFieldGroup() {
+  const { pending } = useFormStatus();
+  return (
+    <div style={styles.fieldGroup}>
+      <input name="name" placeholder="名稱" disabled={pending} style={{ ...styles.input, opacity: pending ? 0.5 : 1 }} />
+      <input name="role" placeholder="角色" disabled={pending} style={{ ...styles.input, opacity: pending ? 0.5 : 1 }} />
+    </div>
+  );
+}
+
+function AddMemberNew() {
+  const [state, submitAction] = useActionState(
+    async (_prev, formData) => {
+      const err = await fakeAddMember(formData.get("name"), formData.get("role"));
+      if (err) return { error: err, success: false };
+      return { error: null, success: true };
+    },
+    { error: null, success: false }
+  );
+
+  return (
+    <form action={submitAction}>
+      <FormFieldGroup />
+      <div style={styles.formFooter}>
+        <FormSubmitButton />
+        <FormSaveIndicator />
+      </div>
+      {state.error && <p style={styles.error}>{state.error}</p>}
+      {state.success && <p style={styles.success}>新增成功！（表單已自動 reset）</p>}
+    </form>
+  );
+}
+
 export default function DemoActions() {
   return (
     <DemoLayout
-      title="Actions & useActionState"
-      description="React 19 讓 useTransition 支援 async function，並新增 useActionState 搭配 <form action> 大幅簡化表單處理。不用再手動管理 isPending / error / reset。"
+      title="useActionState"
+      description="建立在 Action 之上的進階 hook — 把 state、pending、action 三者整合成一個 hook，搭配 <form action> 和 useFormStatus 讓表單處理更簡潔。"
     >
+      <div style={styles.insightBox}>
+        <div style={styles.insightTitle}>前置知識</div>
+        <p style={styles.insightText}>
+          這頁的內容建立在 <strong>startTransition & Actions</strong> 的概念之上。
+          <code>useActionState</code> 是把 Action pattern 再進一步封裝：
+          一個 hook 取代 3-4 個 <code>useState</code>，搭配 <code>{"<form action>"}</code> 還能自動 reset 表單。
+        </p>
+      </div>
+
+      <h2 style={styles.h2}>對比：手動管理 vs useActionState</h2>
+
       <ComparePanel
         before={
           <>
             <CodeBlock
-              title="程式碼"
-              code={`const [isPending, setIsPending] = useState(false);
+              title="程式碼 — 手動管理 3 個 state"
+              code={`const [name, setName] = useState('');
+const [isPending, setIsPending] = useState(false);
 const [error, setError] = useState(null);
+const [success, setSuccess] = useState(false);
 
 const handleSubmit = async () => {
   setIsPending(true);  // 手動開始
   setError(null);
+  setSuccess(false);
   const err = await updateName(name);
   setIsPending(false); // 手動結束
-  if (err) setError(err);
+  if (err) { setError(err); return; }
+  setSuccess(true);
+  setName('');
 };
 
-// 需要 3 個 useState 來管理狀態`}
+// 😫 4 個 useState
+// 😫 手動 setIsPending(true/false)
+// 😫 手動 setError / setSuccess
+// 😫 手動 reset`}
             />
             <LiveArea label="Live Demo — 試著送出空白或單字">
               <UpdateNameOld />
@@ -163,23 +227,21 @@ const handleSubmit = async () => {
         after={
           <>
             <CodeBlock
-              title="React 19 — useActionState"
-              code={`const [state, submitAction, isPending] = useActionState(
-  async (prevState, formData) => {
-    const err = await updateName(formData.get("name"));
-    if (err) return { error: err, success: false };
+              title="程式碼 — useActionState 一行搞定"
+              code={`const [state, submitAction, isPending] =
+  useActionState(async (prev, formData) => {
+    const name = formData.get('name');
+    const err = await updateName(name);
+    if (err) return { error: err };
     return { error: null, success: true };
-    // ✅ isPending、error、success 全部自動管理
-    // ✅ 表單送出後自動 reset
-  },
-  { error: null, success: false }
-);
+  }, { error: null, success: false });
 
-// useTransition 可以讓 isPending 自動管理，
-// 但 error / success 仍需自己處理。
-// useActionState 把三者全部包在一起。`}
+// ✅ 0 個 useState
+// ✅ isPending 自動管理
+// ✅ error / success 在 return 值裡
+// ✅ 搭配 <form action> 自動 reset`}
             />
-            <LiveArea label="Live Demo — useActionState">
+            <LiveArea label="Live Demo — 行為一樣，code 少 60%">
               <UpdateNameWithAction />
             </LiveArea>
           </>
@@ -188,46 +250,102 @@ const handleSubmit = async () => {
 
       <div style={styles.divider} />
 
-      <h2 style={styles.h2}>進階：useActionState + {"<form action>"}</h2>
+      <h2 style={styles.h2}>進階：useFormStatus — 消除 prop drilling</h2>
       <p style={styles.subDesc}>
-        更進一步，用 <code>useActionState</code> 搭配 <code>{"<form action={fn}>"}</code>，
-        連 <code>useState</code> 都不需要了。表單送出後還會自動 reset。
-        子元件可以用 <code>useFormStatus</code> 讀取父層 form 的 pending 狀態。
+        當表單有多個子元件都需要知道 pending 狀態時，傳統做法要把 <code>isPending</code> 一路傳下去。
+        <code>useFormStatus</code> 讓任何 <code>{"<form>"}</code> 底下的子元件<strong>直接讀取 pending</strong>，不用接收 prop。
       </p>
-      <div style={styles.singlePanel}>
-        <div style={{ ...styles.tag, background: "var(--green)" }}>
-          React 19 — useActionState
-        </div>
-        <CodeBlock
-          title="程式碼"
-          code={`// 一個 hook 搞定 state + pending + action
-const [state, submitAction, isPending] = useActionState(
-  async (prevState, formData) => {
-    const err = await updateName(formData.get("name"));
-    if (err) return { error: err };
-    return { error: null, success: true };
-  },
-  { error: null, success: false }
-);
 
-// 搭配 <form action={submitAction}>
-// 表單成功後自動 reset！
+      <ComparePanel
+        beforeLabel="Prop Drilling"
+        afterLabel="useFormStatus"
+        before={
+          <>
+            <CodeBlock
+              title="程式碼 — 手動傳 isPending 給每個子元件"
+              code={`function AddMemberForm() {
+  const [isPending, setIsPending] = useState(false);
 
-// 子元件用 useFormStatus 讀取 pending
-function SubmitButton() {
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* 😫 每個子元件都要傳 isPending */}
+      <FieldGroup isPending={isPending} />
+      <SubmitBtn isPending={isPending} />
+      <SaveIndicator isPending={isPending} />
+    </form>
+  );
+}
+
+// 3 個子元件 × isPending prop = prop drilling`}
+            />
+            <LiveArea label="Live Demo — isPending 手動傳遞">
+              <AddMemberOld />
+            </LiveArea>
+          </>
+        }
+        after={
+          <>
+            <CodeBlock
+              title="程式碼 — 子元件自己讀取 form 狀態"
+              code={`function FieldGroup() {
+  const { pending } = useFormStatus();
+  return <input disabled={pending} />;
+}
+
+function SubmitBtn() {
   const { pending } = useFormStatus();
   return <button disabled={pending}>...</button>;
+}
+
+function SaveIndicator() {
+  const { pending } = useFormStatus();
+  return pending ? <span>儲存中...</span> : null;
+}
+
+function AddMemberForm() {
+  const [state, action] = useActionState(fn, init);
+  return (
+    <form action={action}>
+      {/* ✅ 不用傳任何 prop！ */}
+      <FieldGroup />
+      <SubmitBtn />
+      <SaveIndicator />
+    </form>
+  );
 }`}
-        />
-        <LiveArea label="Live Demo — useActionState + form action">
-          <UpdateNameWithAction />
-        </LiveArea>
-      </div>
+            />
+            <LiveArea label="Live Demo — useFormStatus 自動讀取">
+              <AddMemberNew />
+            </LiveArea>
+          </>
+        }
+      />
     </DemoLayout>
   );
 }
 
 const styles = {
+  insightBox: {
+    padding: "20px 24px",
+    background: "var(--surface)",
+    border: "1px solid var(--accent)",
+    borderLeft: "4px solid var(--accent)",
+    borderRadius: "var(--radius)",
+    marginBottom: 20,
+  },
+  insightTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "var(--accent)",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+    marginBottom: 8,
+  },
+  insightText: {
+    fontSize: 14,
+    lineHeight: 1.8,
+    color: "var(--text)",
+  },
   inputRow: {
     display: "flex",
     gap: 8,
@@ -295,5 +413,21 @@ const styles = {
     padding: "3px 12px",
     borderRadius: 99,
     letterSpacing: "0.5px",
+  },
+  fieldGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    marginBottom: 12,
+  },
+  formFooter: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  },
+  savingHint: {
+    fontSize: 13,
+    color: "var(--orange, #f59e0b)",
+    fontWeight: 500,
   },
 };
