@@ -283,12 +283,20 @@ function HeavyListWithTransition() {
   );
 }
 
-// ========================================
-// 模擬 API 請求（1.5 秒延遲）
-// ========================================
+// 模擬不穩定的 API 延遲：第一個請求慢（2s），後續快（200ms）
+// 這會讓快速連改時暴露 race condition
+let isFirstQtyRequest = true;
 function fakeUpdateQuantity(newQuantity) {
   return new Promise((resolve) => {
-    setTimeout(() => resolve(Number(newQuantity)), 1500);
+    if (isFirstQtyRequest) {
+      isFirstQtyRequest = false;
+      setTimeout(() => {
+        isFirstQtyRequest = true;
+        resolve(Number(newQuantity));
+      }, 2000);
+    } else {
+      setTimeout(() => resolve(Number(newQuantity)), 200);
+    }
   });
 }
 
@@ -300,16 +308,18 @@ function fakeUpdateQuantity(newQuantity) {
 function QuantityBlocking() {
   const [quantity, setQuantity] = useState(1);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [clientQuantity, setClientQuantity] = useState(1);
 
   const handleChange = async (e) => {
     const value = e.target.value;
+    setClientQuantity(Number(value));
     setIsUpdating(true);
     const saved = await fakeUpdateQuantity(value);
     setQuantity(saved);
     setIsUpdating(false);
-    // ❌ 快速連改 → 多個 async 同時跑
-    // → isUpdating 閃爍、且先發的請求後到會覆蓋正確結果
   };
+
+  const isWrong = !isUpdating && quantity !== clientQuantity;
 
   return (
     <div style={styles.checkoutBox}>
@@ -332,6 +342,12 @@ function QuantityBlocking() {
           {isUpdating ? "🌀 更新中..." : `NT$ ${(quantity * 2800).toLocaleString()}`}
         </span>
       </div>
+      {isWrong && (
+        <div style={styles.raceError}>
+          Race condition! 期望 NT$ {(clientQuantity * 2800).toLocaleString()}
+          ，但顯示 NT$ {(quantity * 2800).toLocaleString()}
+        </div>
+      )}
     </div>
   );
 }
@@ -343,18 +359,20 @@ function QuantityBlocking() {
 function QuantityWithTransition() {
   const [quantity, setQuantity] = useState(1);
   const [isPending, startTransition] = useTransition();
+  const [clientQuantity, setClientQuantity] = useState(1);
 
   const handleChange = (e) => {
     const value = e.target.value;
+    setClientQuantity(Number(value));
     startTransition(async () => {
       const saved = await fakeUpdateQuantity(value);
       startTransition(() => {
         setQuantity(saved);
       });
     });
-    // ✅ isPending 持續為 true 直到所有 transition 完成
-    // 快速連改 → 總金額保持「更新中...」不閃爍
   };
+
+  const isWrong = !isPending && quantity !== clientQuantity;
 
   return (
     <div style={styles.checkoutBox}>
@@ -377,6 +395,12 @@ function QuantityWithTransition() {
           {isPending ? "🌀 更新中..." : `NT$ ${(quantity * 2800).toLocaleString()}`}
         </span>
       </div>
+      {isWrong && (
+        <div style={styles.raceError}>
+          Race condition! 期望 NT$ {(clientQuantity * 2800).toLocaleString()}
+          ，但顯示 NT$ {(quantity * 2800).toLocaleString()}
+        </div>
+      )}
     </div>
   );
 }
@@ -384,10 +408,91 @@ function QuantityWithTransition() {
 export default function DemoTransition() {
   return (
     <DemoLayout
-      title="startTransition — 非阻塞渲染"
-      description="startTransition 不只是拿來包 API 請求。當你有一個很重的 UI 更新（大量列表、複雜圖表），用 startTransition 包起來可以讓使用者的輸入、點擊等互動不被阻塞。React 會優先處理使用者操作，等閒下來再更新重渲染的部分。"
+      title="startTransition & Actions"
+      description="React 19 最核心的概念之一：把 async function 交給 startTransition，讓 React 自動管理 pending / 完成 / 錯誤 — 這就是「Action」。"
     >
-      <h2 style={styles.h2}>範例 1：搜尋篩選 5000 筆商品</h2>
+      <div style={styles.actionConcept}>
+        <h2 style={styles.h2}>什麼是 Action？</h2>
+        <p style={styles.subDesc}>
+          React 當年把 <strong>DOM 操作</strong>從命令式變成宣告式（jQuery → JSX）。
+          React 19 做了同一件事，但對象換成了 <strong>資料變更（data mutation）</strong>。
+        </p>
+
+        <div style={styles.patternBox}>
+          <div style={styles.patternLabel}>你寫過 100 次的 pattern：</div>
+          <pre style={styles.patternCode}>{`setIsPending(true);
+setError(null);
+try {
+  const result = await doSomething();
+  setSuccess(true);
+} catch (e) {
+  setError(e.message);
+} finally {
+  setIsPending(false);
+}`}</pre>
+          <div style={styles.patternCaption}>
+            每次都在管理同一件事：<strong>一個非同步操作的生命週期</strong>（pending → success / error）。
+          </div>
+        </div>
+
+        <p style={styles.subDesc}>
+          Action 就是在說：<strong>「你把 async function 給我，生命週期我來管。」</strong>
+        </p>
+
+        <div style={styles.actionCompare}>
+          <div style={styles.actionCol}>
+            <div style={{ ...styles.actionTag, background: "var(--red)" }}>以前</div>
+            <pre style={styles.actionCode}>{`const [isPending, setIsPending] = useState(false);
+
+const handleClick = async () => {
+  setIsPending(true);
+  await doSomething();
+  setIsPending(false);
+};`}</pre>
+          </div>
+          <div style={styles.actionArrow}>→</div>
+          <div style={styles.actionCol}>
+            <div style={{ ...styles.actionTag, background: "var(--green)" }}>Action</div>
+            <pre style={styles.actionCode}>{`const [isPending, startTransition] = useTransition();
+
+const handleClick = () => {
+  startTransition(async () => {
+    await doSomething();
+  });
+};`}</pre>
+          </div>
+        </div>
+
+        <div style={styles.actionEcosystem}>
+          <div style={styles.ecosystemTitle}>Action 生態系</div>
+          <div style={styles.ecosystemGrid}>
+            <div style={styles.ecosystemCard}>
+              <strong>startTransition(async fn)</strong>
+              <span style={styles.ecosystemBadge}>基礎</span>
+              <p style={styles.ecosystemText}>傳入 async function = Action。isPending 自動管理。按慣例，接受 Action 的 prop 命名為 <code>action</code> 或帶 Action 後綴。</p>
+            </div>
+            <div style={styles.ecosystemCard}>
+              <strong>useActionState</strong>
+              <span style={styles.ecosystemBadge}>進階</span>
+              <p style={styles.ecosystemText}>整合 state + pending + action。一個 hook 取代 3-4 個 useState。</p>
+            </div>
+            <div style={styles.ecosystemCard}>
+              <strong>{"<form action={fn}>"}</strong>
+              <span style={styles.ecosystemBadge}>表單</span>
+              <p style={styles.ecosystemText}>form 的 action 接受函式，成功後自動 reset。</p>
+            </div>
+            <div style={styles.ecosystemCard}>
+              <strong>useFormStatus</strong>
+              <span style={styles.ecosystemBadge}>子元件</span>
+              <p style={styles.ecosystemText}>子元件直接讀取父層 form 的 pending，不用 prop drilling。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.divider} />
+
+      <h2 style={styles.h2}>範例 1：非阻塞渲染 — 搜尋篩選 5000 筆商品</h2>
       <p style={styles.subDesc}>
         快速連續打字（例如打 <code>apple</code>），觀察兩邊的「輸入延遲」。
         左邊每次打字直接觸發 SlowList 重算，畫面凍結、輸入卡頓。
@@ -457,11 +562,12 @@ export default function DemoTransition() {
 
       <div style={styles.divider} />
 
-      <h2 style={styles.h2}>範例 2：Async Action — 數量更新（模擬 API）</h2>
+      <h2 style={styles.h2}>範例 2：Action 實戰 — 數量更新（模擬 API）</h2>
       <p style={styles.subDesc}>
-        快速連續修改數量（例如 1→5→10→3），觀察「總金額」的更新狀態。
-        左邊手動管理 <code>isUpdating</code>：每個請求都有自己的 loading 週期，快速連改會閃爍，且有 race condition（先發的請求後到，會覆蓋正確結果）。
-        右邊用 <code>startTransition(async)</code>：<code>isPending</code> 持續為 <code>true</code> 直到所有請求完成，不閃爍、結果正確。這是 React 19 新增的 async action 能力。
+        這就是上面說的 Action：把 async function 傳進 <code>startTransition</code>。
+        快速連續修改數量（例如 1→2→3），左邊手動管理 <code>isUpdating</code>：快速連改會閃爍，且有 race condition。
+        右邊用 Action：<code>isPending</code> 持續為 <code>true</code> 直到所有請求完成，<strong>解決了閃爍問題</strong>。
+        但注意：<strong>race condition 仍然存在</strong> — 先發的慢請求後到，仍會覆蓋正確結果。要解決排序問題，請看下一頁的 <code>useActionState</code>。
       </p>
       <ComparePanel
         beforeLabel="手動 isUpdating"
@@ -500,8 +606,9 @@ const handleChange = (e) => {
       setQuantity(saved); // await 後要再包一層
     });
   });
-  // ✅ isPending 持續為 true 直到完成
-  // → 不閃爍，結果一定是最新的
+  // ✅ isPending 持續為 true 直到完成 → 不閃爍
+  // ⚠️ 但多個 async 請求仍可能亂序完成
+  // → 需要 useActionState 才能保證順序
 };`}
             />
             <LiveArea label="Live Demo — 快速連改數量">
@@ -513,8 +620,40 @@ const handleChange = (e) => {
 
       <div style={styles.divider} />
 
+      <div style={styles.warningBox}>
+        <div style={styles.warningTitle}>Race Condition 仍然存在</div>
+        <p style={styles.warningText}>
+          <code>startTransition</code> 解決了 <strong>isPending 閃爍</strong>的問題，
+          但<strong>不保證請求順序</strong>。快速連改時，先發的慢請求後回來仍會覆蓋正確結果。
+        </p>
+        <p style={styles.warningText}>
+          這是因為 <code>await</code> 之後的 state 更新是非同步排程的，React 無法追蹤跨 async boundary 的順序。
+          官方建議使用 <strong>useActionState</strong> 來處理排序 — 它會依序執行每個 Action，確保最終狀態正確。
+        </p>
+        <div style={styles.warningCompare}>
+          <div style={styles.warningCol}>
+            <strong>startTransition</strong>
+            <div style={styles.warningList}>
+              <div style={styles.warningItem}>isPending 不閃爍</div>
+              <div style={styles.warningItem}>await 後要再包 startTransition</div>
+              <div style={{ ...styles.warningItem, color: "var(--red)" }}>不保證請求順序</div>
+            </div>
+          </div>
+          <div style={styles.warningCol}>
+            <strong>useActionState</strong>
+            <div style={styles.warningList}>
+              <div style={styles.warningItem}>isPending 不閃爍</div>
+              <div style={styles.warningItem}>state + pending + action 一體</div>
+              <div style={{ ...styles.warningItem, color: "var(--green)" }}>依序執行，保證順序</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.divider} />
+
       <div style={styles.summaryPanel}>
-        <h3 style={styles.summaryTitle}>什麼時候用 startTransition？</h3>
+        <h3 style={styles.summaryTitle}>什麼時候用 startTransition / Action？</h3>
         <div style={styles.summaryGrid}>
           <div style={styles.summaryCard}>
             <div style={styles.cardIcon}>⚡</div>
@@ -528,10 +667,13 @@ const handleChange = (e) => {
           </div>
           <div style={styles.summaryCard}>
             <div style={styles.cardIcon}>🌐</div>
-            <strong>Async Actions</strong>
-            <p style={styles.cardText}>React 19 新增：startTransition 可以包 async function 處理 API 請求</p>
+            <strong>Data Mutation</strong>
+            <p style={styles.cardText}>表單送出、按讚、刪除 — 用 Action 自動管理 pending / error</p>
           </div>
         </div>
+        <p style={styles.summaryGuide}>
+          需要保證 async 請求順序？請看下一節：<strong>useActionState</strong> — 把 state + pending + action 三合一，自動處理排序。
+        </p>
       </div>
     </DemoLayout>
   );
@@ -541,6 +683,112 @@ const styles = {
   h2: { fontSize: 20, fontWeight: 600, marginBottom: 8 },
   subDesc: { color: "var(--text-dim)", fontSize: 14, marginBottom: 16, lineHeight: 1.7 },
   divider: { borderTop: "1px solid var(--border)", margin: "8px 0" },
+  actionConcept: { marginBottom: 8 },
+  patternBox: {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius)",
+    padding: 20,
+    marginBottom: 20,
+  },
+  patternLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "var(--text-dim)",
+    marginBottom: 10,
+  },
+  patternCode: {
+    background: "var(--surface-2)",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius-sm)",
+    padding: 16,
+    fontSize: 13,
+    lineHeight: 1.7,
+    color: "var(--red)",
+    fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace",
+    whiteSpace: "pre-wrap",
+  },
+  patternCaption: {
+    fontSize: 13,
+    color: "var(--text-dim)",
+    marginTop: 12,
+    lineHeight: 1.6,
+  },
+  actionCompare: {
+    display: "grid",
+    gridTemplateColumns: "1fr auto 1fr",
+    gap: 12,
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  actionCol: {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius)",
+    padding: 16,
+    position: "relative",
+  },
+  actionTag: {
+    display: "inline-block",
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#fff",
+    padding: "2px 10px",
+    borderRadius: 99,
+    marginBottom: 10,
+  },
+  actionCode: {
+    fontSize: 12,
+    lineHeight: 1.7,
+    color: "var(--text)",
+    fontFamily: "'SF Mono', 'Fira Code', monospace",
+    whiteSpace: "pre-wrap",
+    margin: 0,
+  },
+  actionArrow: {
+    fontSize: 24,
+    color: "var(--text-dim)",
+    fontWeight: 700,
+    textAlign: "center",
+  },
+  actionEcosystem: {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius)",
+    padding: 24,
+  },
+  ecosystemTitle: {
+    fontSize: 16,
+    fontWeight: 600,
+    marginBottom: 16,
+  },
+  ecosystemGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 1fr 1fr",
+    gap: 12,
+  },
+  ecosystemCard: {
+    background: "var(--surface-2)",
+    borderRadius: "var(--radius-sm)",
+    padding: 14,
+    fontSize: 13,
+  },
+  ecosystemBadge: {
+    display: "inline-block",
+    fontSize: 10,
+    fontWeight: 700,
+    color: "var(--accent)",
+    background: "var(--bg)",
+    padding: "1px 8px",
+    borderRadius: 99,
+    marginLeft: 6,
+  },
+  ecosystemText: {
+    fontSize: 12,
+    color: "var(--text-dim)",
+    marginTop: 6,
+    lineHeight: 1.5,
+  },
   input: {
     width: "100%",
     padding: "10px 14px",
@@ -733,6 +981,61 @@ const styles = {
     fontSize: 12,
     color: "var(--text-dim)",
     marginTop: 6,
+    lineHeight: 1.6,
+  },
+  summaryGuide: {
+    fontSize: 13,
+    color: "var(--text-dim)",
+    marginTop: 16,
+    textAlign: "center",
+    lineHeight: 1.7,
+  },
+  raceError: {
+    color: "var(--red)",
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: 500,
+  },
+  warningBox: {
+    padding: "20px 24px",
+    background: "var(--surface)",
+    border: "1px solid var(--orange, #f59e0b)",
+    borderLeft: "4px solid var(--orange, #f59e0b)",
+    borderRadius: "var(--radius)",
+    marginBottom: 20,
+  },
+  warningTitle: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: "var(--orange, #f59e0b)",
+    marginBottom: 8,
+  },
+  warningText: {
+    fontSize: 13,
+    lineHeight: 1.8,
+    color: "var(--text)",
+    marginBottom: 8,
+  },
+  warningCompare: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 16,
+    marginTop: 12,
+  },
+  warningCol: {
+    background: "var(--surface-2)",
+    borderRadius: "var(--radius-sm)",
+    padding: 14,
+    fontSize: 13,
+  },
+  warningList: {
+    marginTop: 8,
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  warningItem: {
+    fontSize: 12,
     lineHeight: 1.6,
   },
 };
